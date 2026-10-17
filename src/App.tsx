@@ -1,0 +1,366 @@
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  ArrowDownLeft, ArrowDownRight, ArrowUpLeft, ArrowUpRight, CreditCard, Download, FlipHorizontal2, Image, Palette,
+  RotateCcw, Rotate3d, Sun, Wind,
+} from 'lucide-react'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Slider } from '@/components/ui/slider'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { TooltipProvider, Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { ToolButton } from '@/components/shell/ToolButton'
+import { Toolbar, ToolbarSeparator } from '@/components/shell/Toolbar'
+import { OnOff, Segmented } from '@/components/shell/Segmented'
+import { Field, FieldGroup } from '@/components/shell/Field'
+import { Swatches } from '@/components/shell/Swatches'
+import { FilePick } from '@/components/shell/FilePick'
+import { LayoutGlyph } from '@/components/LayoutGlyph'
+import { createStudio, type Studio } from '@/engine/studio'
+import { BG_COLOURS, CARD_COLOURS, defaults, type Options } from '@/engine/options'
+import { useStored } from '@/hooks/useStored'
+import { cn } from '@/lib/utils'
+
+const panels = [
+  { id: 'design', label: 'Design', icon: CreditCard },
+  { id: 'finish', label: 'Colour and finish', icon: Palette },
+  { id: 'light', label: 'Lighting', icon: Sun },
+  { id: 'motion', label: 'Rotation', icon: Rotate3d },
+  { id: 'bg', label: 'Background', icon: Image },
+  { id: 'export', label: 'Export', icon: Download },
+] as const
+type PanelId = (typeof panels)[number]['id']
+
+const PANEL_W = 300
+const IMAGE_TYPES = 'image/png,image/svg+xml,image/webp'
+
+function Range({ label, value, onChange, min, max, step }: { label: string; value: number; onChange: (v: number) => void; min: number; max: number; step: number }) {
+  return (
+    <Field label={label}>
+      <Slider aria-label={label} min={min} max={max} step={step} value={[value]} onValueChange={([v]) => onChange(v)} />
+    </Field>
+  )
+}
+
+function Row({ show = true, children }: { show?: boolean; children: ReactNode }) {
+  return show ? <>{children}</> : null
+}
+
+function loadImage(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image()
+    img.onload = () => {
+      // SVGs without an intrinsic size fall back to a usable raster size
+      if (!img.width || !img.height) { img.width = 600; img.height = 300 }
+      resolve(img)
+    }
+    img.onerror = reject
+    img.src = URL.createObjectURL(file)
+  })
+}
+
+export default function App() {
+  const [stored, setStored] = useStored<Partial<Options>>('cards.options', {})
+  const o: Options = { ...defaults, ...stored }
+  const [panel, setPanel] = useState<PanelId | null>(null)
+  const [flipped, setFlipped] = useState(false)
+  const [files, setFiles] = useState<{ mark: string | null; issuer: string | null }>({ mark: null, issuer: null })
+  const [note, setNote] = useState('')
+  const [failed, setFailed] = useState(false)
+  const [, setReady] = useState(false)
+
+  const canvas = useRef<HTMLCanvasElement>(null)
+  const studio = useRef<Studio | null>(null)
+
+  // Start the renderer once; it reports gesture-driven changes (roll, reset) back.
+  useEffect(() => {
+    if (!canvas.current) return
+    try {
+      studio.current = createStudio(canvas.current, o, patch => setStored(prev => ({ ...prev, ...patch })))
+      setReady(true)
+    } catch {
+      setFailed(true)
+    }
+    return () => {
+      studio.current?.dispose()
+      studio.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const set = (patch: Partial<Options>) => {
+    // A mark can only sit level with the chip on a vertical card with a printed mark.
+    const next = { ...o, ...patch }
+    if (next.markPos === 'chip' && !(next.orient === 'v' && next.markStyle === 'standard')) patch = { ...patch, markPos: 'br' }
+    setStored(prev => ({ ...prev, ...patch }))
+    studio.current?.set(patch)
+  }
+
+  useEffect(() => {
+    studio.current?.setPanelWidth(panel && window.innerWidth >= 640 ? PANEL_W : 0)
+  }, [panel])
+
+  const pickImage = async (slot: 'mark' | 'issuer', file: File | null) => {
+    if (!file) {
+      studio.current?.setImage(slot, null)
+      setFiles(f => ({ ...f, [slot]: null }))
+      return
+    }
+    try {
+      studio.current?.setImage(slot, await loadImage(file))
+      setFiles(f => ({ ...f, [slot]: file.name }))
+    } catch {
+      setFiles(f => ({ ...f, [slot]: 'Can’t read file' }))
+    }
+  }
+
+  const exportAs = async (fmt: 'png' | 'jpg') => {
+    if (!studio.current) return
+    setNote('Rendering')
+    const blob: Blob | null = await studio.current.exportImage(fmt, o.exportSize, o.exportBg)
+    if (!blob) return setNote('Couldn’t render the image')
+    const name = `card-${o.layout}-${o.exportSize}.${fmt}`
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = name
+    a.click()
+    setNote(`Saved ${name}`)
+  }
+
+  const layouts = studio.current?.layouts ?? []
+  const layoutIndex = Math.max(0, layouts.findIndex(l => l.id === o.layout))
+  const layout = layouts[layoutIndex]
+  const stepLayout = (dir: number) => layouts.length && set({ layout: layouts[(layoutIndex + dir + layouts.length) % layouts.length].id })
+  const allowChip = o.orient === 'v' && o.markStyle === 'standard'
+  const current = panels.find(p => p.id === panel)
+
+  return (
+    <TooltipProvider delayDuration={400}>
+      <canvas ref={canvas} aria-label="Rotating 3D payment card" className="fixed inset-0 size-full cursor-grab touch-none active:cursor-grabbing" style={{ background: o.bg }} />
+      {failed && (
+        <p className="fixed inset-0 grid place-items-center p-6 text-center text-sm text-muted-foreground">This needs WebGL. Open it in a current Safari, Chrome or Firefox.</p>
+      )}
+
+      <nav
+        aria-label="Panels"
+        className={cn('panel fixed top-3 right-3 z-60 flex flex-col gap-1 rounded-full p-1 transition-[right] duration-200', panel && 'sm:right-[calc(300px+0.75rem)]')}
+      >
+        {panels.map(p => (
+          <ToolButton key={p.id} icon={p.icon} label={p.label} active={panel === p.id} onClick={() => setPanel(panel === p.id ? null : p.id)} />
+        ))}
+      </nav>
+
+      <Sheet open={panel !== null} onOpenChange={open => !open && setPanel(null)} modal={false}>
+        <SheetContent
+          side="right"
+          className="panel gap-0 data-[side=right]:w-[min(300px,86vw)] data-[side=right]:sm:max-w-[300px]"
+          onInteractOutside={e => e.preventDefault()}
+        >
+          <SheetHeader>
+            <SheetTitle>{current?.label}</SheetTitle>
+            <SheetDescription className="sr-only">{current?.label} options</SheetDescription>
+          </SheetHeader>
+
+          <div className="flex flex-col gap-6 overflow-y-auto px-4 pb-6">
+            {panel === 'design' && (
+              <>
+                <FieldGroup>
+                  <Field label="Layout">
+                    <Segmented label="Layout" value={o.orient} onChange={v => set({ orient: v })} options={[{ value: 'v', label: 'Vertical' }, { value: 'h', label: 'Horizontal' }]} />
+                  </Field>
+                  <Field label="Name">
+                    <Input value={o.nameText} maxLength={26} aria-label="Cardholder name" onChange={e => set({ nameText: e.target.value })} />
+                  </Field>
+                  <Field label="Name on">
+                    <Segmented label="Name on" value={o.name} onChange={v => set({ name: v })} options={[{ value: 'front', label: 'Front' }, { value: 'back', label: 'Back' }, { value: 'both', label: 'Both' }]} />
+                  </Field>
+                  <Field label="Hologram">
+                    <Segmented label="Hologram" value={o.holo} onChange={v => set({ holo: v })} options={[{ value: 'none', label: 'None' }, { value: 'front', label: 'Front' }, { value: 'back', label: 'Back' }]} />
+                  </Field>
+                </FieldGroup>
+
+                <FieldGroup title="Front">
+                  <Field label="Chip colour">
+                    <Segmented label="Chip colour" value={o.chipColor} onChange={v => set({ chipColor: v })} options={['gold', 'silver', 'rose', 'graphite', 'black'].map(v => ({ value: v, label: v[0].toUpperCase() + v.slice(1) }))} />
+                  </Field>
+                  <Field label="Chip pattern">
+                    <Segmented label="Chip pattern" value={o.chipPattern} onChange={v => set({ chipPattern: v })} options={[{ value: 'classic', label: 'Classic' }, { value: 'grid', label: 'Six' }, { value: 'eight', label: 'Eight' }, { value: 'organic', label: 'Organic' }, { value: 'minimal', label: 'Minimal' }]} />
+                  </Field>
+                  <Field label="Mark">
+                    <FilePick label="Mark" name={files.mark} accept={IMAGE_TYPES} onPick={f => pickImage('mark', f)} onClear={() => pickImage('mark', null)} />
+                  </Field>
+                  <Field label="Position">
+                    <Segmented
+                      label="Mark position"
+                      value={o.markPos}
+                      onChange={v => set({ markPos: v })}
+                      options={[
+                        { value: 'tl', label: 'Top left', icon: ArrowUpLeft },
+                        { value: 'tr', label: 'Top right', icon: ArrowUpRight },
+                        { value: 'bl', label: 'Bottom left', icon: ArrowDownLeft },
+                        { value: 'br', label: 'Bottom right', icon: ArrowDownRight },
+                        { value: 'chip', label: 'Chip', disabled: !allowChip },
+                      ]}
+                    />
+                  </Field>
+                  <Field label="Mark finish">
+                    <Segmented label="Mark finish" value={o.markStyle} onChange={v => set({ markStyle: v })} options={[{ value: 'standard', label: 'Print' }, { value: 'silver', label: 'Silver' }, { value: 'gold', label: 'Gold' }, { value: 'rainbow', label: 'Rainbow' }, { value: 'black', label: 'Black' }]} />
+                  </Field>
+                  <Field label="Identifier">
+                    <Segmented label="Identifier" value={o.ident} onChange={v => set({ ident: v })} options={[{ value: 'none', label: 'None' }, { value: 'Debit', label: 'Debit' }, { value: 'Credit', label: 'Credit' }, { value: 'Business', label: 'Business' }, { value: 'custom', label: 'Tier' }]} />
+                  </Field>
+                  <Row show={o.ident === 'custom'}>
+                    <Field label="Tier">
+                      <Input value={o.identText} maxLength={20} aria-label="Tier name" onChange={e => set({ identText: e.target.value })} />
+                    </Field>
+                  </Row>
+                  <Field label="Issuer logo">
+                    <FilePick label="Issuer logo" name={files.issuer} accept={IMAGE_TYPES} onPick={f => pickImage('issuer', f)} onClear={() => pickImage('issuer', null)} />
+                  </Field>
+                  <Field label="Number">
+                    <Segmented label="Front number" value={o.fAccount} onChange={v => set({ fAccount: v })} options={[{ value: 'none', label: 'None' }, { value: 'last4', label: 'Last 4' }, { value: 'full', label: 'Full' }]} />
+                  </Field>
+                  <Field label="Contactless">
+                    <OnOff label="Contactless" value={o.contactless} onChange={v => set({ contactless: v })} />
+                  </Field>
+                </FieldGroup>
+
+                <FieldGroup title="Back">
+                  <Field label="Stripe">
+                    <Segmented label="Stripe" value={o.stripe} onChange={v => set({ stripe: v })} options={[{ value: 'standard', label: 'Black' }, { value: 'custom', label: 'Colour' }, { value: 'none', label: 'None' }]} />
+                  </Field>
+                  <Row show={o.stripe === 'custom'}>
+                    <Field label="Stripe colour">
+                      <input type="color" aria-label="Stripe colour" value={o.stripeColor} onChange={e => set({ stripeColor: e.target.value })} className="h-8 w-full cursor-pointer rounded-[10px] bg-muted p-0.5" />
+                    </Field>
+                  </Row>
+                  <Field label="Signature">
+                    <OnOff label="Signature panel" value={o.sig} onChange={v => set({ sig: v })} />
+                  </Field>
+                  <Field label="Code">
+                    <Segmented label="Security code" value={o.cvv} onChange={v => set({ cvv: v })} options={[{ value: 'panel', label: 'Panel' }, { value: 'box', label: 'Box' }, { value: 'printed', label: 'Printed' }, { value: 'none', label: 'App' }]} />
+                  </Field>
+                  <Field label="Number">
+                    <Segmented label="Back number" value={o.bAccount} onChange={v => set({ bAccount: v })} options={[{ value: 'none', label: 'None' }, { value: 'full', label: 'Full' }]} />
+                  </Field>
+                  <Field label="Terms">
+                    <OnOff label="Terms text" value={o.service} onChange={v => set({ service: v })} />
+                  </Field>
+                </FieldGroup>
+              </>
+            )}
+
+            {panel === 'finish' && (
+              <FieldGroup>
+                <Field label="Colour">
+                  <Swatches label="Card colour" value={o.color} onChange={v => set({ color: v })} colours={CARD_COLOURS} />
+                </Field>
+                <Field label="Metal">
+                  <Segmented label="Metal finish" value={o.material} onChange={v => set({ material: v })} options={[{ value: 'polished', label: 'Polished' }, { value: 'brushed', label: 'Brushed' }, { value: 'blasted', label: 'Blasted' }, { value: 'holo', label: 'Holo' }]} />
+                </Field>
+                <Field label="Coated">
+                  <Segmented label="Coated finish" value={o.material} onChange={v => set({ material: v })} options={[{ value: 'gloss', label: 'Gloss' }, { value: 'satin', label: 'Satin' }, { value: 'soft', label: 'Soft' }]} />
+                </Field>
+                <Field label="Sparkle">
+                  <Segmented label="Sparkle" value={o.sparkle} onChange={v => set({ sparkle: v })} options={[{ value: 'off', label: 'Off' }, { value: 'fine', label: 'Fine' }, { value: 'heavy', label: 'Heavy' }]} />
+                </Field>
+                <Field label="Edge">
+                  <Segmented label="Edge" value={o.edge} onChange={v => set({ edge: v })} options={[{ value: 'match', label: 'Match' }, { value: 'silver', label: 'Silver' }, { value: 'gold', label: 'Gold' }, { value: 'copper', label: 'Copper' }]} />
+                </Field>
+              </FieldGroup>
+            )}
+
+            {panel === 'light' && (
+              <FieldGroup>
+                <Field label="Mood">
+                  <Segmented label="Mood" value={o.mood} onChange={v => set({ mood: v })} options={[{ value: 'studio', label: 'Studio' }, { value: 'soft', label: 'Soft' }, { value: 'contrast', label: 'Contrast' }]} />
+                </Field>
+                <Field label="Key light">
+                  <Segmented label="Key light" value={o.keyDir} onChange={v => set({ keyDir: v })} options={[{ value: 'left', label: 'Left' }, { value: 'top', label: 'Top' }, { value: 'right', label: 'Right' }]} />
+                </Field>
+                <Range label="Brightness" value={o.bright} onChange={v => set({ bright: v })} min={0.4} max={2} step={0.05} />
+                <Range label="Exposure" value={o.expo} onChange={v => set({ expo: v })} min={0.5} max={1.6} step={0.05} />
+              </FieldGroup>
+            )}
+
+            {panel === 'motion' && (
+              <FieldGroup>
+                <Field label="Spin">
+                  <OnOff label="Spin" value={o.spin} onChange={v => set({ spin: v })} />
+                </Field>
+                <Range label="Drift amount" value={o.amount} onChange={v => set({ amount: v })} min={0} max={2} step={0.05} />
+                <Range label="Speed" value={o.speed} onChange={v => set({ speed: v })} min={0.2} max={2.5} step={0.05} />
+                <Range label="Turn" value={o.turn} onChange={v => set({ turn: v })} min={-1.2} max={1.2} step={0.01} />
+                <Range label="Tilt" value={o.tilt} onChange={v => set({ tilt: v })} min={-0.8} max={0.8} step={0.01} />
+                <Range label="Roll" value={o.rollBase} onChange={v => set({ rollBase: v })} min={-1.2} max={1.2} step={0.01} />
+                <Button variant="secondary" onClick={() => studio.current?.resetView()}>Reset</Button>
+              </FieldGroup>
+            )}
+
+            {panel === 'bg' && (
+              <FieldGroup>
+                <Field label="Colour">
+                  <Swatches label="Background colour" value={o.bg} onChange={v => set({ bg: v })} colours={BG_COLOURS} />
+                </Field>
+                <Field label="Floor shadow">
+                  <OnOff label="Floor shadow" value={o.shadow} onChange={v => set({ shadow: v })} />
+                </Field>
+                <Row show={o.shadow}>
+                  <Range label="Strength" value={o.shadowStrength} onChange={v => set({ shadowStrength: v })} min={0} max={0.85} step={0.01} />
+                  <Range label="Blur" value={o.shadowBlur} onChange={v => set({ shadowBlur: v })} min={1} max={16} step={0.5} />
+                  <Range label="Distance" value={o.shadowDist} onChange={v => set({ shadowDist: v })} min={4.5} max={14} step={0.1} />
+                </Row>
+              </FieldGroup>
+            )}
+
+            {panel === 'export' && (
+              <FieldGroup>
+                <Field label="Size">
+                  <Segmented label="Size" value={o.exportSize} onChange={v => set({ exportSize: v })} options={[{ value: 'hd', label: 'HD 1920' }, { value: '4k', label: '4K 3840' }]} />
+                </Field>
+                <Field label="Background">
+                  <Segmented label="Export background" value={o.exportBg} onChange={v => set({ exportBg: v })} options={[{ value: 'include', label: 'Include' }, { value: 'transparent', label: 'Transparent' }]} />
+                </Field>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant="secondary" onClick={() => exportAs('png')}>Save PNG</Button>
+                  <Button variant="secondary" onClick={() => exportAs('jpg')}>Save JPG</Button>
+                </div>
+                {note && <p role="status" className="text-xs text-muted-foreground">{note}</p>}
+              </FieldGroup>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <div className={cn('pointer-events-none fixed inset-x-0 bottom-4 flex justify-center transition-[right] duration-200', panel && 'sm:right-[300px]')}>
+        <Toolbar aria-label="Card controls" className="pointer-events-auto">
+          <ToolButton icon={Wind} label="Drift" side="top" active={o.drift} onClick={() => set({ drift: !o.drift })} />
+          <ToolButton
+            icon={FlipHorizontal2}
+            label={flipped ? 'Show front' : 'Show back'}
+            side="top"
+            active={flipped}
+            onClick={() => {
+              setFlipped(!flipped)
+              studio.current?.setFlipped(!flipped)
+            }}
+          />
+          <ToolButton icon={RotateCcw} label="Reset view" side="top" onClick={() => studio.current?.resetView()} />
+          <ToolbarSeparator />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={`Layout: ${layout?.name ?? 'Single'}. Next layout`}
+                onClick={e => stepLayout(e.shiftKey ? -1 : 1)}
+                className="grid h-10 place-items-center rounded-full px-2.5 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <LayoutGlyph cards={layout?.cards ?? [{ x: 0, y: 0, z: 0 }]} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">{layout?.name ?? 'Layout'}</TooltipContent>
+          </Tooltip>
+        </Toolbar>
+      </div>
+    </TooltipProvider>
+  )
+}
