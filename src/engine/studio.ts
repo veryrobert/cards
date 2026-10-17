@@ -48,6 +48,9 @@ export function createStudio(
   // back: shows the reverse; alt: uses the second card colour.
   const LAYOUTS = [
     { id: 'single',   name: 'Single',   cards: [{ x: 0, y: 0, z: 0 }] },
+    // Front and back side by side, square to the camera: no tilt, roll or drift. Positions come from the
+    // card's real size (see frame and resize); x here only draws the layout button's glyph
+    { id: 'flat',     name: 'Flat',     flat: true, cards: [{ x: -0.55, y: 0, z: 0 }, { x: 0.55, y: 0, z: 0, back: true }] },
     { id: 'diagonal', name: 'Diagonal', cards: [{ x: -0.3, y: 0.2, z: 0, rz: -0.3 }, { x: 0.32, y: -0.22, z: -3.2, rz: -0.15, ry: 0.12, alt: true }] },
     { id: 'layers',   name: 'Layers',   cards: [{ x: -0.22, y: 0.06, z: 0, ry: -0.45, rx: -0.1 }, { x: 0.3, y: -0.08, z: -3.4, ry: -0.45, rx: -0.1, back: true }] },
     { id: 'hinge',    name: 'Hinge',    cards: [{ x: -0.32, y: 0.04, z: 0, ry: 0.4, rz: -0.05 }, { x: 0.36, y: -0.04, z: -2.4, ry: -0.55, rz: 0.05, back: true }] },
@@ -59,6 +62,7 @@ export function createStudio(
   ];
   const currentLayout = () => LAYOUTS.find(l => l.id === state.layout) || LAYOUTS[0];
   const SPREAD = 0.62;   // tightens every layout; depth gaps stay as set so cards don't collide
+  const FLAT_GAP = 0.9;  // cm between the two cards in the Flat layout
   const usesAlt = () => false;   // every card uses the main colour for now
 
   // Real-world finishes. surface: micro-texture in the normal map; aniso: brushed highlight stretch
@@ -822,16 +826,20 @@ export function createStudio(
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     const tan = 2 * Math.tan(THREE.MathUtils.degToRad(15));
-    const Lc = currentLayout().cards;
+    const Lc = currentLayout().cards, flat = currentLayout().flat;
     let needH = state.orient === 'v' ? 13 : 10.5, needW = state.orient === 'v' ? 9.5 : 11.5;
-    if (Lc.length > 1) {
+    if (flat) {
+      needW = (2 * W + FLAT_GAP) * 1.18;
+      needH = H * 1.6;
+    } else if (Lc.length > 1) {
       const U = Math.max(W, H), r = 0.5 * Math.hypot(W, H);
       needW = 2.1 * Math.max(...Lc.map(c => Math.abs(c.x * U * SPREAD) + r));
       needH = 2.1 * Math.max(...Lc.map(c => Math.abs(c.y * U * SPREAD) + r));
     }
     const d = Math.max(needH / tan, needW / (tan * camera.aspect)) / (state.zoom || 1);
-    camera.position.set(0, d * 0.06, d);
-    camera.lookAt(0, -0.4, 0);
+    // Flat looks straight on; the others from a touch above
+    if (flat) { camera.position.set(0, 0, d); camera.lookAt(0, 0, 0); }
+    else { camera.position.set(0, d * 0.06, d); camera.lookAt(0, -0.4, 0); }
     camera.updateProjectionMatrix();
     viewOffset();
   }
@@ -947,8 +955,22 @@ export function createStudio(
     const dp = Math.sin(ph * 0.33) * 0.12 * amt;
     if (!dragging && drift) userPitch *= 0.985;
     const k = dragging ? 0.25 : 0.06;
-    const Lc = currentLayout().cards;
+    const Lc = currentLayout().cards, flat = currentLayout().flat;
     const multi = Lc.length > 1;
+    if (flat) {
+      // Square to the camera, still: ease any turn, tilt or roll out, then hold
+      yaw += (0 - yaw) * 0.12; pitch += (0 - pitch) * 0.12; roll += (0 - roll) * 0.12;
+      rig.rotation.set(pitch, yaw, roll, 'ZXY');
+      rig.position.set(panX, panY, 0);
+      Lc.forEach((c, i) => {
+        const g = holders[i], o = cardOffsets[i];
+        g.position.set((i ? 1 : -1) * (W + FLAT_GAP) / 2 + o.x, o.y, o.z);
+        g.rotation.set(0, c.back ? Math.PI : 0, 0, 'ZXY');
+      });
+      renderer.render(scene, camera);
+      raf = requestAnimationFrame(frame);
+      return;
+    }
     if (state.spin && !dragging) userYaw += dt * 0.7 * state.speed;
     const base = (flipped ? Math.PI : 0) + state.turn;
     let targetYaw, targetPitch = state.tilt + userPitch + dp;
