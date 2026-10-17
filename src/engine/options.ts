@@ -1,7 +1,7 @@
 // Every option the renderer understands, with Card studio's defaults.
 export const defaults = {
   orient: 'v' as 'v' | 'h',
-  cardFont: 'helvetica' as 'helvetica' | 'geist',
+  cardFont: 'helvetica' as 'helvetica' | 'geist' | 'mark',
   layout: 'single',
   nameText: 'Cardholder Name',
   name: 'back' as 'front' | 'back' | 'both',

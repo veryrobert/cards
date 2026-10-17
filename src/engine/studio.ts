@@ -19,6 +19,7 @@ export type Studio = {
   setPanelWidth(px: number): void
   resetView(): void
   setArt(face: 'front' | 'back', art: Art | null): void
+  refreshText(): void // redraw after a typeface has been registered
   guides(face: 'front' | 'back'): Guides
   exportImage(fmt: 'png' | 'jpg', size: Options['exportSize'], background: Options['exportBg']): Promise<Blob | null>
   recordVideo(opts: { seconds: number; motion: 'spin' | 'drift' | 'both'; onProgress?: (seconds: number) => void }): Promise<{ blob: Blob; ext: 'mp4' | 'webm' } | null>
@@ -189,13 +190,17 @@ export function createStudio(
   const FONTS = {
     helvetica: '"Helvetica Neue", Helvetica, Arial, sans-serif',
     geist: '"Geist Variable", "Helvetica Neue", Helvetica, Arial, sans-serif',
+    // FF Mark is licensed, so it's never bundled: the app registers "Card Mark" from an installed
+    // copy or a file the person loads (see lib/cardFont.ts)
+    mark: '"Card Mark", "Helvetica Neue", Helvetica, Arial, sans-serif',
   };
   const sans = () => FONTS[state.cardFont] || FONTS.helvetica;
   const NUMBER = { tracking: 0.06 };
   // Canvas won't load a web font on its own: fetch it first, then redraw
-  const fontReady = () => state.cardFont === 'geist'
-    ? Promise.all([document.fonts.load('400 40px "Geist Variable"'), document.fonts.load('500 40px "Geist Variable"')]).catch(() => {})
-    : Promise.resolve();
+  const fontReady = () => {
+    const family = state.cardFont === 'geist' ? '"Geist Variable"' : state.cardFont === 'mark' ? '"Card Mark"' : null;
+    return family ? Promise.all([document.fonts.load(`400 40px ${family}`), document.fonts.load(`500 40px ${family}`)]).catch(() => {}) : Promise.resolve();
+  };
   function text(ctx, str, x, y, size, opts) {
     opts = opts || {};
     ctx.save();
@@ -547,7 +552,7 @@ export function createStudio(
     const markBottomLeft = state.markPos === 'bl';
     let y = markBottomLeft ? box.y - 0.3 : H - 0.62;
     if (!V && !markBottomLeft) y = H - 0.55;
-    if (state.name !== 'back') { inkText(L, state.nameText, M, y, 0.3, { weight: 500 }, ink, inkRm); y -= 0.5; }
+    if (state.name !== 'back') { inkText(L, state.nameText, M, y, 0.3, {}, ink, inkRm); y -= 0.5; }
     if (state.fAccount === 'last4') {
       inkText(L, '•••• 9010', M, y, 0.3, NUMBER, ink, inkRm);
     } else if (state.fAccount === 'full') {
@@ -612,7 +617,7 @@ export function createStudio(
       inkText(L, '4000 1234 5678 9010', cx, y, V ? 0.3 : 0.38, { ...NUMBER, weight: 500 }, ink, inkRm); y += 0.42;
       inkText(L, 'Good thru 12/29', cx, y, 0.2, {}, ink, inkRm); y += 0.5;
     }
-    if (state.name !== 'front') { inkText(L, state.nameText, cx, y, 0.28, { weight: 500 }, ink, inkRm); y += 0.5; }
+    if (state.name !== 'front') { inkText(L, state.nameText, cx, y, 0.28, {}, ink, inkRm); y += 0.5; }
 
     if (state.holo === 'back') {
       drawHolo(L, V ? { x: W - 0.45 - 1.1, y: H - 2.3, w: 1.1, h: 0.75 } : { x: W - M - 1.1, y: cy, w: 1.1, h: 0.75 });
@@ -1055,6 +1060,7 @@ export function createStudio(
     },
     setFlipped(v) { flipped = v; },
     setArt(face, a) { art[face] = a; schedule(); },
+    refreshText() { fontReady().then(schedule); },
     guides,
     setPanelWidth(px) { panelWidth = px; viewOffset(); },
     resetView,

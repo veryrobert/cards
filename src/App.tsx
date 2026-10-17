@@ -18,6 +18,7 @@ import { LayoutGlyph } from '@/components/LayoutGlyph'
 import { ArtworkDialog } from '@/components/ArtworkDialog'
 import { defaultPlacement, type Art, type Placement } from '@/engine/art'
 import type { Guides } from '@/engine/studio'
+import { clearMark, useInstalledMark, useMarkFile } from '@/lib/cardFont'
 import { createStudio, type Studio } from '@/engine/studio'
 import { BG_COLOURS, CARD_COLOURS, defaults, type Options } from '@/engine/options'
 import { useStored } from '@/hooks/useStored'
@@ -69,6 +70,8 @@ export default function App() {
   const [flipped, setFlipped] = useState(false)
   const [files, setFiles] = useState<{ mark: string | null; issuer: string | null }>({ mark: null, issuer: null })
   const [hasMark, setHasMark] = useState(false)
+  // FF Mark for the card text: from an installed copy, or a font file loaded this visit
+  const [markFont, setMarkFont] = useState<{ state: 'idle' | 'ready' | 'missing'; name: string | null }>({ state: 'idle', name: null })
   // Full-face artwork, and the face being placed in the dialog (with what to go back to on Cancel)
   const [art, setArtState] = useState<{ front: Art | null; back: Art | null }>({ front: null, back: null })
   const [placing, setPlacing] = useState<{ face: 'front' | 'back'; art: Art; before: Art | null; guides: Guides } | null>(null)
@@ -108,6 +111,29 @@ export default function App() {
   useEffect(() => {
     studio.current?.setPanelWidth(panel && window.innerWidth >= 640 ? PANEL_W : 0)
   }, [panel])
+
+  const chooseMark = async () => {
+    if (markFont.state === 'ready') return
+    const ok = await useInstalledMark()
+    setMarkFont({ state: ok ? 'ready' : 'missing', name: ok ? 'Installed' : null })
+    if (ok) studio.current?.refreshText()
+  }
+
+  const loadMarkFile = async (file: File) => {
+    try {
+      await useMarkFile(file)
+      setMarkFont({ state: 'ready', name: file.name })
+      studio.current?.refreshText()
+    } catch {
+      setMarkFont({ state: 'missing', name: 'Can’t read that font' })
+    }
+  }
+
+  // A remembered Mark choice needs the font again on each visit
+  useEffect(() => {
+    if (o.cardFont === 'mark') chooseMark()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const applyArt = (face: 'front' | 'back', a: Art | null) => {
     setArtState(prev => ({ ...prev, [face]: a }))
@@ -256,8 +282,27 @@ export default function App() {
                     <Segmented label="Layout" value={o.orient} onChange={v => set({ orient: v })} options={[{ value: 'v', label: 'Vertical' }, { value: 'h', label: 'Horizontal' }]} />
                   </Field>
                   <Field label="Typeface">
-                    <Segmented label="Typeface" value={o.cardFont} onChange={v => set({ cardFont: v })} options={[{ value: 'helvetica', label: 'Helvetica' }, { value: 'geist', label: 'Geist' }]} />
+                    <Segmented
+                      label="Typeface"
+                      value={o.cardFont}
+                      onChange={v => { set({ cardFont: v }); if (v === 'mark') chooseMark() }}
+                      options={[{ value: 'helvetica', label: 'Helvetica' }, { value: 'geist', label: 'Geist' }, { value: 'mark', label: 'Mark' }]}
+                    />
                   </Field>
+                  <Row show={o.cardFont === 'mark' && markFont.state !== 'idle'}>
+                    <Field label="Font file">
+                      <FilePick
+                        label="Mark font file"
+                        name={markFont.name}
+                        accept=".otf,.ttf,.woff,.woff2,font/otf,font/ttf,font/woff,font/woff2"
+                        onPick={loadMarkFile}
+                        onClear={() => { clearMark(); setMarkFont({ state: 'missing', name: null }); studio.current?.refreshText() }}
+                      />
+                      {markFont.state === 'missing' && (
+                        <p className="text-xs text-muted-foreground">FF Mark isn’t installed here. Load a font file you’re licensed to use; it stays in this browser. Helvetica is used until then.</p>
+                      )}
+                    </Field>
+                  </Row>
                   <Field label="Name">
                     <Input value={o.nameText} maxLength={26} aria-label="Cardholder name" onChange={e => set({ nameText: e.target.value })} />
                   </Field>
