@@ -68,6 +68,7 @@ export default function App() {
   const [panel, setPanel] = useState<PanelId | null>(null)
   const [flipped, setFlipped] = useState(false)
   const [files, setFiles] = useState<{ mark: string | null; issuer: string | null }>({ mark: null, issuer: null })
+  const [hasMark, setHasMark] = useState(false)
   // Full-face artwork, and the face being placed in the dialog (with what to go back to on Cancel)
   const [art, setArtState] = useState<{ front: Art | null; back: Art | null }>({ front: null, back: null })
   const [placing, setPlacing] = useState<{ face: 'front' | 'back'; art: Art; before: Art | null; guides: Guides } | null>(null)
@@ -151,11 +152,13 @@ export default function App() {
     if (!file) {
       studio.current?.setImage(slot, null)
       setFiles(f => ({ ...f, [slot]: null }))
+      if (slot === 'mark') setHasMark(false)
       return
     }
     try {
       studio.current?.setImage(slot, await loadImage(file))
       setFiles(f => ({ ...f, [slot]: file.name }))
+      if (slot === 'mark') setHasMark(true)
     } catch {
       setFiles(f => ({ ...f, [slot]: 'Can’t read file' }))
     }
@@ -273,6 +276,8 @@ export default function App() {
                   <Field label="Mark">
                     <FilePick label="Mark" name={files.mark} accept={IMAGE_TYPES} onPick={f => pickImage('mark', f)} onClear={() => pickImage('mark', null)} />
                   </Field>
+                  {/* Placement and finish apply to an uploaded mark, and to the identifier set beside it */}
+                  <Row show={hasMark || o.ident !== 'none'}>
                   <Field label="Position">
                     <Segmented
                       label="Mark position"
@@ -290,6 +295,7 @@ export default function App() {
                   <Field label="Mark finish">
                     <Segmented label="Mark finish" value={o.markStyle} onChange={v => set({ markStyle: v })} options={[{ value: 'standard', label: 'Print' }, { value: 'silver', label: 'Silver' }, { value: 'gold', label: 'Gold' }, { value: 'rainbow', label: 'Rainbow' }, { value: 'black', label: 'Black' }]} />
                   </Field>
+                  </Row>
                   <Field label="Identifier">
                     <Segmented label="Identifier" value={o.ident} onChange={v => set({ ident: v })} options={[{ value: 'none', label: 'None' }, { value: 'Debit', label: 'Debit' }, { value: 'Credit', label: 'Credit' }, { value: 'Business', label: 'Business' }, { value: 'custom', label: 'Tier' }]} />
                   </Field>
