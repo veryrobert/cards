@@ -66,6 +66,8 @@ export default function App() {
   const [flipped, setFlipped] = useState(false)
   const [files, setFiles] = useState<{ mark: string | null; issuer: string | null }>({ mark: null, issuer: null })
   const [note, setNote] = useState('')
+  const [exportKind, setExportKind] = useState<'image' | 'video'>('image')
+  const [recorded, setRecorded] = useState<number | null>(null) // seconds so far while a video records
   const [failed, setFailed] = useState(false)
   const [, setReady] = useState(false)
 
@@ -114,17 +116,30 @@ export default function App() {
     }
   }
 
-  const exportAs = async (fmt: 'png' | 'jpg') => {
-    if (!studio.current) return
-    setNote('Rendering')
-    const blob: Blob | null = await studio.current.exportImage(fmt, o.exportSize, o.exportBg)
-    if (!blob) return setNote('Couldn’t render the image')
-    const name = `card-${o.layout}-${o.exportSize}.${fmt}`
+  const save = (blob: Blob, name: string) => {
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
     a.download = name
     a.click()
     setNote(`Saved ${name}`)
+  }
+
+  const exportAs = async (fmt: 'png' | 'jpg') => {
+    if (!studio.current) return
+    setNote('Rendering')
+    const blob: Blob | null = await studio.current.exportImage(fmt, o.exportSize, o.exportBg)
+    if (!blob) return setNote('Couldn’t render the image')
+    save(blob, `card-${o.layout}-${o.exportSize}.${fmt}`)
+  }
+
+  const recordVideo = async () => {
+    if (!studio.current || recorded !== null) return
+    setNote('')
+    setRecorded(0)
+    const out = await studio.current.recordVideo({ seconds: Number(o.videoSeconds), motion: o.videoMotion, onProgress: setRecorded })
+    setRecorded(null)
+    if (!out) return setNote('Recording isn’t supported in this browser')
+    save(out.blob, `card-${o.layout}-${o.videoSeconds}s.${out.ext}`)
   }
 
   const layouts = studio.current?.layouts ?? []
@@ -319,16 +334,34 @@ export default function App() {
 
             {panel === 'export' && (
               <FieldGroup>
-                <Field label="Size">
-                  <Segmented label="Size" value={o.exportSize} onChange={v => set({ exportSize: v })} options={[{ value: 'hd', label: 'HD 1920' }, { value: '4k', label: '4K 3840' }]} />
-                </Field>
-                <Field label="Background">
-                  <Segmented label="Export background" value={o.exportBg} onChange={v => set({ exportBg: v })} options={[{ value: 'include', label: 'Include' }, { value: 'transparent', label: 'Transparent' }]} />
-                </Field>
-                <div className="grid grid-cols-2 gap-2">
-                  <Button variant="secondary" onClick={() => exportAs('png')}>Save PNG</Button>
-                  <Button variant="secondary" onClick={() => exportAs('jpg')}>Save JPG</Button>
-                </div>
+                <Segmented label="Export as" value={exportKind} onChange={setExportKind} options={[{ value: 'image', label: 'Image' }, { value: 'video', label: 'Video' }]} />
+                {exportKind === 'image' ? (
+                  <>
+                    <Field label="Size">
+                      <Segmented label="Size" value={o.exportSize} onChange={v => set({ exportSize: v })} options={[{ value: 'hd', label: 'HD 1920' }, { value: '4k', label: '4K 3840' }]} />
+                    </Field>
+                    <Field label="Background">
+                      <Segmented label="Export background" value={o.exportBg} onChange={v => set({ exportBg: v })} options={[{ value: 'include', label: 'Include' }, { value: 'transparent', label: 'Transparent' }]} />
+                    </Field>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button variant="secondary" onClick={() => exportAs('png')}>Save PNG</Button>
+                      <Button variant="secondary" onClick={() => exportAs('jpg')}>Save JPG</Button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Field label="Length">
+                      <Segmented label="Length" value={o.videoSeconds} onChange={v => set({ videoSeconds: v })} options={[{ value: '5', label: '5s' }, { value: '10', label: '10s' }, { value: '15', label: '15s' }]} />
+                    </Field>
+                    <Field label="Motion">
+                      <Segmented label="Motion" value={o.videoMotion} onChange={v => set({ videoMotion: v })} options={[{ value: 'spin', label: 'Spin' }, { value: 'drift', label: 'Drift' }, { value: 'both', label: 'Both' }]} />
+                    </Field>
+                    <Button variant="secondary" disabled={recorded !== null} onClick={recordVideo}>
+                      {recorded === null ? 'Record video' : `Recording ${Math.floor(recorded)}s of ${o.videoSeconds}`}
+                    </Button>
+                    <p className="text-xs text-muted-foreground">1920 on the long side, MP4 where your browser can record it, otherwise WebM. Background included.</p>
+                  </>
+                )}
                 {note && <p role="status" className="text-xs text-muted-foreground">{note}</p>}
               </FieldGroup>
             )}

@@ -14,6 +14,7 @@ export type Studio = {
   setPanelWidth(px: number): void
   resetView(): void
   exportImage(fmt: 'png' | 'jpg', size: Options['exportSize'], background: Options['exportBg']): Promise<Blob | null>
+  recordVideo(opts: { seconds: number; motion: 'spin' | 'drift' | 'both'; onProgress?: (seconds: number) => void }): Promise<{ blob: Blob; ext: 'mp4' | 'webm' } | null>
   layouts: { id: string; name: string; cards: LayoutCard[] }[]
   dispose(): void
 }
@@ -745,6 +746,7 @@ export function createStudio(
 
   // ---------- View ----------
   let panelWidth = 0;
+  let recording = false; // while a video records, the canvas keeps the video's size
   // On wide screens, keep the card centred in the space left of the side panel
   function viewOffset() {
     const w = window.innerWidth, h = window.innerHeight;
@@ -752,6 +754,7 @@ export function createStudio(
     else camera.clearViewOffset();
   }
   function resize() {
+    if (recording) return; // the canvas is held at the video's size until recording ends
     const w = window.innerWidth, h = window.innerHeight;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
@@ -936,7 +939,44 @@ export function createStudio(
 
   const LIGHT_KEYS = new Set(['bright', 'expo']);
   const SHADOW_KEYS = new Set(['shadowStrength', 'shadowBlur', 'shadowDist']);
-  const LIVE_KEYS = new Set(['amount', 'speed', 'turn', 'tilt', 'rollBase', 'spin', 'drift']);
+  // ---------- Video ----------
+  // Records the live animation from the canvas, held at 1920 on the long side. Motion is switched on
+  // just for the recording, then put back. MP4 where the browser can record it, otherwise WebM.
+  async function recordVideo({ seconds, motion, onProgress = () => {} }) {
+    if (recording || !canvas.captureStream || !window.MediaRecorder) return null;
+    const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+    const type = types.find(t => MediaRecorder.isTypeSupported(t)) || '';
+    const w = window.innerWidth, h = window.innerHeight, k = 1920 / Math.max(w, h);
+    const W = Math.round(w * k / 2) * 2, H = Math.round(h * k / 2) * 2;   // even sizes for H.264
+    const prev = { spin: state.spin, drift, pr: renderer.getPixelRatio() };
+    state.spin = motion !== 'drift'; drift = motion !== 'spin';
+    renderer.setPixelRatio(1);
+    renderer.setSize(W, H, false);
+    camera.clearViewOffset(); camera.aspect = W / H; camera.updateProjectionMatrix();
+    recording = true;
+    const stream = canvas.captureStream(30), chunks = [];
+    const rec = new MediaRecorder(stream, type ? { mimeType: type, videoBitsPerSecond: 16e6 } : undefined);
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    const done = new Promise(r => { rec.onstop = r; });
+    rec.start(250);
+    const t0 = performance.now();
+    await new Promise(r => {
+      const tick = () => { const t = (performance.now() - t0) / 1000; onProgress(Math.min(seconds, t)); if (t >= seconds) r(); else setTimeout(tick, 100); };
+      tick();
+    });
+    rec.stop(); await done;
+    stream.getTracks().forEach(t => t.stop());
+    recording = false;
+    state.spin = prev.spin; drift = prev.drift;
+    renderer.setPixelRatio(prev.pr);
+    resize();
+    const mime = rec.mimeType || type || 'video/webm';
+    const blob = new Blob(chunks, { type: mime });
+    return blob.size ? { blob, ext: mime.includes('mp4') ? 'mp4' : 'webm' } : null;
+  }
+
+  // Read each frame or only at export: changing them needs no texture rebuild
+  const LIVE_KEYS = new Set(['amount', 'speed', 'turn', 'tilt', 'rollBase', 'spin', 'drift', 'exportSize', 'exportBg', 'videoSeconds', 'videoMotion']);
 
   return {
     // Merge changed options and redo only the work they need.
@@ -957,6 +997,7 @@ export function createStudio(
     setPanelWidth(px) { panelWidth = px; viewOffset(); },
     resetView,
     exportImage,
+    recordVideo,
     layouts: LAYOUTS.map(l => ({ id: l.id, name: l.name, cards: l.cards })),
     dispose() {
       cancelAnimationFrame(raf);

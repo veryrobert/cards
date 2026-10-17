@@ -41,6 +41,8 @@ export const defaults = {
   shadowDist: 6.8,
   exportSize: '4k' as 'hd' | '4k',
   exportBg: 'include' as 'include' | 'transparent',
+  videoSeconds: '10' as '5' | '10' | '15',
+  videoMotion: 'spin' as 'spin' | 'drift' | 'both',
 }
 
 export type Options = typeof defaults
