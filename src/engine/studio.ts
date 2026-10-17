@@ -4,6 +4,11 @@
 // the React UI only calls the methods returned by createStudio().
 import * as THREE from 'three'
 import type { Options } from './options'
+import { drawArt, type Art } from './art'
+
+// Where things sit on a face, in centimetres, for the artwork guides
+export type Zone = { label: string; x: number; y: number; w: number; h: number }
+export type Guides = { w: number; h: number; r: number; safe: number; px: [number, number]; zones: Zone[] }
 
 type LayoutCard = { x: number; y: number; z: number; rx?: number; ry?: number; rz?: number; back?: boolean; alt?: boolean }
 
@@ -13,6 +18,8 @@ export type Studio = {
   setFlipped(flipped: boolean): void
   setPanelWidth(px: number): void
   resetView(): void
+  setArt(face: 'front' | 'back', art: Art | null): void
+  guides(face: 'front' | 'back'): Guides
   exportImage(fmt: 'png' | 'jpg', size: Options['exportSize'], background: Options['exportBg']): Promise<Blob | null>
   recordVideo(opts: { seconds: number; motion: 'spin' | 'drift' | 'both'; onProgress?: (seconds: number) => void }): Promise<{ blob: Blob; ext: 'mp4' | 'webm' } | null>
   layouts: { id: string; name: string; cards: LayoutCard[] }[]
@@ -34,6 +41,7 @@ export function createStudio(
   };
   Object.assign(state, initial);
   let markImg = null, issuerImg = null;
+  const art = { front: null, back: null };   // full-face artwork, printed over the base
 
   // Multi-card compositions. x and y in units of the card's long side, z in cm.
   // back: shows the reverse; alt: uses the second card colour.
@@ -318,6 +326,32 @@ export function createStudio(
     return V ? { x: M, y: 1.55, w: 1.1, h: 0.75 } : { x: W - M - 1.1, y: 1.85, w: 1.1, h: 0.75 };
   }
 
+  // Everything the card draws over a face, for the placement guides
+  function guides(face) {
+    setDims();
+    const zones = [];
+    const add = (label, r) => r && zones.push({ label, x: r.x, y: r.y, w: r.w, h: r.h });
+    if (face === 'front') {
+      const ch = chipRect();
+      add('Chip', ch);
+      if (state.contactless) add('Contactless', V ? { x: ch.x - 0.05, y: ch.y - 0.6, w: ch.w + 0.1, h: 0.5 } : { x: ch.x + ch.w + 0.05, y: ch.y - 0.05, w: 0.5, h: ch.h + 0.1 });
+      if (markImg || identLabel()) add('Mark', markBox());
+      if (issuerImg || state.issuerText.trim()) add('Issuer', { x: state.markPos === 'tl' ? W - M - 2 : M, y: M, w: 2, h: 0.62 });
+      const lines = (state.name !== 'back' ? 1 : 0) + (state.fAccount === 'last4' ? 1 : state.fAccount === 'full' ? 2 : 0);
+      if (lines) add(state.fAccount === 'none' ? 'Name' : 'Name and number', { x: M, y: H - M - lines * 0.5 - 0.1, w: W * 0.62, h: lines * 0.5 + 0.1 });
+      if (state.holo === 'front') add('Hologram', frontHoloRect());
+    } else {
+      const stripe = state.stripe !== 'none';
+      if (stripe) add('Stripe', V ? { x: 0.5, y: 0, w: 0.95, h: H } : { x: 0, y: 0.45, w: W, h: 0.95 });
+      const cx = V ? (stripe ? 1.9 : M) : M, cy = V ? 0.9 : (stripe ? 1.85 : M), cw = V ? W - 0.45 - cx : 5.2;
+      if (state.sig || state.cvv === 'box') add('Signature and code', { x: cx, y: cy, w: cw, h: 0.6 });
+      if (state.name !== 'front' || state.bAccount === 'full') add('Name and number', { x: cx, y: cy + 1.0, w: cw, h: state.bAccount === 'full' ? 1.3 : 0.5 });
+      if (state.service) add('Terms', V ? { x: cx, y: H - 1.15, w: W - 0.45 - cx, h: 0.65 } : { x: cx, y: H - 1.0, w: W - 2 * M, h: 0.5 });
+      if (state.holo === 'back') add('Hologram', V ? { x: W - 0.45 - 1.1, y: H - 2.3, w: 1.1, h: 0.75 } : { x: W - M - 1.1, y: cy, w: 1.1, h: 0.75 });
+    }
+    return { w: W, h: H, r: R, safe: 0.3, px: [TW, TH], zones };
+  }
+
   // ---------- Drawing parts ----------
   function drawChip(L, ch) {
     const portrait = ch.h > ch.w;
@@ -476,8 +510,19 @@ export function createStudio(
   }
 
   // ---------- Front and back ----------
+  // Artwork is printed ink: its own colours, non-metallic, with the finish showing where it's transparent
+  function paintArt(L, a) {
+    if (!a) return;
+    const c = document.createElement('canvas'); c.width = TW; c.height = TH;
+    drawArt(c.getContext('2d'), a.img, a.placement, TW, TH);
+    L.c.drawImage(c, 0, 0, W, H);
+    const g = c.getContext('2d'); g.globalCompositeOperation = 'source-in'; g.fillStyle = rmS(0.4, 0); g.fillRect(0, 0, TW, TH);
+    L.m.drawImage(c, 0, 0, W, H);
+  }
+
   function frontMaps(p) {
     const L = startLayers(p);
+    paintArt(L, art.front);
     const ch = chipRect();
     drawChip(L, ch);
     if (state.contactless) drawContactless(L, p, ch);
@@ -504,6 +549,7 @@ export function createStudio(
 
   function backMaps(p) {
     const L = startLayers(p);
+    paintArt(L, art.back);
     const ink = p.ink, inkRm = rmS(p.inkRough, p.inkMetal);
     const hasStripe = state.stripe !== 'none';
     const stripeCol = state.stripe === 'custom' ? state.stripeColor : '#151518';
@@ -994,6 +1040,8 @@ export function createStudio(
       schedule();
     },
     setFlipped(v) { flipped = v; },
+    setArt(face, a) { art[face] = a; schedule(); },
+    guides,
     setPanelWidth(px) { panelWidth = px; viewOffset(); },
     resetView,
     exportImage,

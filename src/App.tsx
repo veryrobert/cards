@@ -15,6 +15,9 @@ import { Field, FieldGroup } from '@/components/shell/Field'
 import { Swatches } from '@/components/shell/Swatches'
 import { FilePick } from '@/components/shell/FilePick'
 import { LayoutGlyph } from '@/components/LayoutGlyph'
+import { ArtworkDialog } from '@/components/ArtworkDialog'
+import { defaultPlacement, type Art, type Placement } from '@/engine/art'
+import type { Guides } from '@/engine/studio'
 import { createStudio, type Studio } from '@/engine/studio'
 import { BG_COLOURS, CARD_COLOURS, defaults, type Options } from '@/engine/options'
 import { useStored } from '@/hooks/useStored'
@@ -65,6 +68,9 @@ export default function App() {
   const [panel, setPanel] = useState<PanelId | null>(null)
   const [flipped, setFlipped] = useState(false)
   const [files, setFiles] = useState<{ mark: string | null; issuer: string | null }>({ mark: null, issuer: null })
+  // Full-face artwork, and the face being placed in the dialog (with what to go back to on Cancel)
+  const [art, setArtState] = useState<{ front: Art | null; back: Art | null }>({ front: null, back: null })
+  const [placing, setPlacing] = useState<{ face: 'front' | 'back'; art: Art; before: Art | null; guides: Guides } | null>(null)
   const [note, setNote] = useState('')
   const [exportKind, setExportKind] = useState<'image' | 'video'>('image')
   const [recorded, setRecorded] = useState<number | null>(null) // seconds so far while a video records
@@ -101,6 +107,45 @@ export default function App() {
   useEffect(() => {
     studio.current?.setPanelWidth(panel && window.innerWidth >= 640 ? PANEL_W : 0)
   }, [panel])
+
+  const applyArt = (face: 'front' | 'back', a: Art | null) => {
+    setArtState(prev => ({ ...prev, [face]: a }))
+    studio.current?.setArt(face, a)
+  }
+
+  // Open the placement dialog, turning the card to show that face; the card updates live behind it
+  const placeArt = (face: 'front' | 'back', a: Art) => {
+    if (!studio.current) return
+    studio.current.setFlipped(face === 'back')
+    applyArt(face, a)
+    setPlacing({ face, art: a, before: art[face], guides: studio.current.guides(face) })
+  }
+
+  const pickArt = async (face: 'front' | 'back', file: File) => {
+    try {
+      const img = await loadImage(file)
+      // Turn the artwork a quarter if its orientation doesn't match the card face
+      const g = studio.current?.guides(face)
+      const turn = g && (img.width > img.height) !== (g.w > g.h)
+      placeArt(face, { img, name: file.name, placement: { ...defaultPlacement, rotate: turn ? 90 : 0 } })
+    } catch {
+      setNote('Can’t read that image')
+    }
+  }
+
+  const movePlacement = (p: Placement) => {
+    if (!placing) return
+    const a = { ...placing.art, placement: p }
+    setPlacing({ ...placing, art: a })
+    applyArt(placing.face, a)
+  }
+
+  const endPlacing = (keep: boolean) => {
+    if (!placing) return
+    if (!keep) applyArt(placing.face, placing.before)
+    studio.current?.setFlipped(flipped)
+    setPlacing(null)
+  }
 
   const pickImage = async (slot: 'mark' | 'issuer', file: File | null) => {
     if (!file) {
@@ -183,6 +228,26 @@ export default function App() {
           <div className="flex flex-col gap-6 overflow-y-auto px-4 pb-6">
             {panel === 'design' && (
               <>
+                <FieldGroup title="Artwork">
+                  {(['front', 'back'] as const).map(face => (
+                    <Field key={face} label={face === 'front' ? 'Front' : 'Back'}>
+                      <div className="flex gap-1">
+                        <div className="min-w-0 flex-1">
+                          <FilePick
+                            label={`${face} artwork`}
+                            name={art[face]?.name ?? null}
+                            accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                            onPick={f => pickArt(face, f)}
+                            onClear={() => applyArt(face, null)}
+                          />
+                        </div>
+                        {art[face] && (
+                          <Button variant="secondary" size="sm" className="h-8" onClick={() => placeArt(face, art[face]!)}>Adjust</Button>
+                        )}
+                      </div>
+                    </Field>
+                  ))}
+                </FieldGroup>
                 <FieldGroup>
                   <Field label="Layout">
                     <Segmented label="Layout" value={o.orient} onChange={v => set({ orient: v })} options={[{ value: 'v', label: 'Vertical' }, { value: 'h', label: 'Horizontal' }]} />
@@ -399,6 +464,18 @@ export default function App() {
           </Tooltip>
         </Toolbar>
       </div>
+      {placing && (
+        <ArtworkDialog
+          face={placing.face}
+          img={placing.art.img}
+          name={placing.art.name}
+          guides={placing.guides}
+          placement={placing.art.placement}
+          onChange={movePlacement}
+          onDone={() => endPlacing(true)}
+          onCancel={() => endPlacing(false)}
+        />
+      )}
     </TooltipProvider>
   )
 }

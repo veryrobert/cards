@@ -4,4 +4,5 @@
 - Payment card mockups rendered in 3D with three.js; the original renderer kept intact behind a small API
 - React controls on the starter: design, colour and finish, lighting, rotation, background, export panels
 - PNG/JPG export at HD or 4K, transparent background option; options remembered between visits
+- Video export: 5, 10 or 15 seconds of the card spinning, drifting or both, MP4 (or WebM) at 1920
 - Load screen: a landscape card with its chip drawing in
