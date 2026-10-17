@@ -3,7 +3,6 @@ import {
   ArrowDownLeft, ArrowDownRight, ArrowUpLeft, ArrowUpRight, CreditCard, Download, FlipHorizontal2, Image, Palette,
   RotateCcw, Rotate3d, Sun, Wind,
 } from 'lucide-react'
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Slider } from '@/components/ui/slider'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -23,7 +22,10 @@ import { createStudio, type Studio } from '@/engine/studio'
 import { BG_COLOURS, CARD_COLOURS, defaults, type Options } from '@/engine/options'
 import { useStored } from '@/hooks/useStored'
 import { Splash } from '@/components/shell/Splash'
-import { cn } from '@/lib/utils'
+import { PanelRail } from '@/components/shell/PanelRail'
+import { PanelSheet } from '@/components/shell/PanelSheet'
+import { ActionDock } from '@/components/shell/ActionDock'
+import { PANEL_W, PHONE_SHEET, usePhone } from '@/components/shell/layout'
 
 const panels = [
   { id: 'design', label: 'Design', icon: CreditCard },
@@ -35,7 +37,6 @@ const panels = [
 ] as const
 type PanelId = (typeof panels)[number]['id']
 
-const PANEL_W = 300
 const IMAGE_TYPES = 'image/png,image/svg+xml,image/webp'
 
 function Range({ label, value, onChange, min, max, step }: { label: string; value: number; onChange: (v: number) => void; min: number; max: number; step: number }) {
@@ -67,6 +68,7 @@ export default function App() {
   const [stored, setStored] = useStored<Partial<Options>>('cards.options', {})
   const o: Options = { ...defaults, ...stored }
   const [panel, setPanel] = useState<PanelId | null>(null)
+  const phone = usePhone()
   const [flipped, setFlipped] = useState(false)
   const [files, setFiles] = useState<{ mark: string | null; issuer: string | null }>({ mark: null, issuer: null })
   const [hasMark, setHasMark] = useState(false)
@@ -108,9 +110,10 @@ export default function App() {
     studio.current?.set(patch)
   }
 
+  // Frame the card in the space the open panel leaves: beside it on desktop, above it on phones
   useEffect(() => {
-    studio.current?.setPanelWidth(panel && window.innerWidth >= 640 ? PANEL_W : 0)
-  }, [panel])
+    studio.current?.setViewInset(!panel ? {} : phone ? { bottom: window.innerHeight * PHONE_SHEET } : { right: PANEL_W })
+  }, [panel, phone])
 
   const chooseMark = async () => {
     if (markFont.state === 'ready') return
@@ -234,27 +237,9 @@ export default function App() {
         <p className="fixed inset-0 grid place-items-center p-6 text-center text-sm text-muted-foreground">This needs WebGL. Open it in a current Safari, Chrome or Firefox.</p>
       )}
 
-      <nav
-        aria-label="Panels"
-        className={cn('panel fixed top-3 right-3 z-60 flex flex-col gap-1 rounded-full p-1 transition-[right] duration-200', panel && 'sm:right-[calc(300px+0.75rem)]')}
-      >
-        {panels.map(p => (
-          <ToolButton key={p.id} icon={p.icon} label={p.label} active={panel === p.id} onClick={() => setPanel(panel === p.id ? null : p.id)} />
-        ))}
-      </nav>
+      <PanelRail panels={panels} open={panel} onToggle={id => setPanel(panel === id ? null : id)} phone={phone} />
 
-      <Sheet open={panel !== null} onOpenChange={open => !open && setPanel(null)} modal={false}>
-        <SheetContent
-          side="right"
-          className="panel gap-0 data-[side=right]:w-[min(300px,86vw)] data-[side=right]:sm:max-w-[300px]"
-          onInteractOutside={e => e.preventDefault()}
-        >
-          <SheetHeader>
-            <SheetTitle>{current?.label}</SheetTitle>
-            <SheetDescription className="sr-only">{current?.label} options</SheetDescription>
-          </SheetHeader>
-
-          <div className="flex flex-col gap-6 overflow-y-auto px-4 pb-6">
+      <PanelSheet open={panel !== null} title={current?.label} onClose={() => setPanel(null)} phone={phone}>
             {panel === 'design' && (
               <>
                 <FieldGroup title="Artwork">
@@ -484,12 +469,10 @@ export default function App() {
                 {note && <p role="status" className="text-xs text-muted-foreground">{note}</p>}
               </FieldGroup>
             )}
-          </div>
-        </SheetContent>
-      </Sheet>
+      </PanelSheet>
 
-      <div className={cn('pointer-events-none fixed inset-x-0 bottom-4 flex justify-center transition-[right] duration-200', panel && 'sm:right-[300px]')}>
-        <Toolbar aria-label="Card controls" className="pointer-events-auto">
+      <ActionDock phone={phone} panelOpen={panel !== null}>
+        <Toolbar aria-label="Card controls">
           <ToolButton icon={Wind} label="Drift" side="top" active={o.drift} onClick={() => set({ drift: !o.drift })} />
           <ToolButton
             icon={FlipHorizontal2}
@@ -517,7 +500,7 @@ export default function App() {
             <TooltipContent side="top">{layout?.name ?? 'Layout'}</TooltipContent>
           </Tooltip>
         </Toolbar>
-      </div>
+      </ActionDock>
       {placing && (
         <ArtworkDialog
           face={placing.face}

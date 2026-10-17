@@ -45,7 +45,8 @@ export function ArtworkDialog({ face, img, name, guides: g, placement: p, onChan
   // Preview size in CSS pixels: the card face plus a margin on every side
   const aspect = g.w / g.h
   const outerAspect = (1 + 2 * PAD) / (1 / aspect + 2 * PAD)
-  const ow = Math.min(MAX_W, MAX_H * outerAspect), oh = ow / outerAspect
+  // Fits the dialog on phones too: the screen width less the dialog's padding
+  const ow = Math.min(MAX_W, window.innerWidth - 64, MAX_H * outerAspect), oh = ow / outerAspect
   const scale = ow / (g.w * (1 + 2 * PAD)) // px per cm
   const pad = g.w * PAD * scale, cw = g.w * scale, ch = g.h * scale
 

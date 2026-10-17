@@ -16,7 +16,8 @@ export type Studio = {
   set(patch: Partial<Options>): void
   setImage(slot: 'mark' | 'issuer', img: HTMLImageElement | null): void
   setFlipped(flipped: boolean): void
-  setPanelWidth(px: number): void
+  // Space a panel covers, so the card is framed in what's left: right on desktop, bottom on phones
+  setViewInset(inset: { right?: number; bottom?: number }): void
   resetView(): void
   setArt(face: 'front' | 'back', art: Art | null): void
   refreshText(): void // redraw after a typeface has been registered
@@ -812,12 +813,13 @@ export function createStudio(
   }
 
   // ---------- View ----------
-  let panelWidth = 0;
+  let inset = { right: 0, bottom: 0 };
   let recording = false; // while a video records, the canvas keeps the video's size
-  // On wide screens, keep the card centred in the space left of the side panel
+  // Keep the card centred in the space a panel leaves: left of a side panel, above a bottom one
   function viewOffset() {
     const w = window.innerWidth, h = window.innerHeight;
-    if (panelWidth && w >= 640) camera.setViewOffset(w, h, panelWidth / 2, 0, w, h);
+    if (inset.right) camera.setViewOffset(w, h, inset.right / 2, 0, w, h);
+    else if (inset.bottom) camera.setViewOffset(w, h, 0, inset.bottom / 2, w, h);
     else camera.clearViewOffset();
   }
   function resize() {
@@ -836,7 +838,9 @@ export function createStudio(
       needW = 2.1 * Math.max(...Lc.map(c => Math.abs(c.x * U * SPREAD) + r));
       needH = 2.1 * Math.max(...Lc.map(c => Math.abs(c.y * U * SPREAD) + r));
     }
-    const d = Math.max(needH / tan, needW / (tan * camera.aspect)) / (state.zoom || 1);
+    // Fit into the height a bottom panel leaves, so the card shrinks rather than hiding behind it
+    const hf = Math.max(0.3, (h - inset.bottom) / h);
+    const d = Math.max(needH / (tan * hf), needW / (tan * camera.aspect)) / (state.zoom || 1);
     // Flat looks straight on; the others from a touch above
     if (flat) { camera.position.set(0, 0, d); camera.lookAt(0, 0, 0); }
     else { camera.position.set(0, d * 0.06, d); camera.lookAt(0, -0.4, 0); }
@@ -1084,7 +1088,7 @@ export function createStudio(
     setArt(face, a) { art[face] = a; schedule(); },
     refreshText() { fontReady().then(schedule); },
     guides,
-    setPanelWidth(px) { panelWidth = px; viewOffset(); },
+    setViewInset(i) { inset = { right: 0, bottom: 0, ...i }; resize(); },
     resetView,
     exportImage,
     recordVideo,
