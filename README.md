@@ -1,4 +1,4 @@
-# Cards
+# cards
 
 A studio for rendering payment card mockups in 3D: design the front and back, pick a finish, light it, pose it, and export a PNG or JPG at HD or 4K.
 
