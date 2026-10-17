@@ -137,11 +137,8 @@ export default function App() {
   return (
     <TooltipProvider delayDuration={400}>
       <Splash label="Loading cards">
-        <path pathLength={1} d="M11 5h10a2 2 0 0 1 2 2v18a2 2 0 0 1-2 2H11a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" />
-        <path pathLength={1} d="M17 9h3a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-4a.5.5 0 0 1 .5-.5z" />
-        <path pathLength={1} d="M16.5 11.5h4" />
-        <path pathLength={1} d="M12 22.5h5" />
-        <path pathLength={1} d="M12 24.5h3" />
+        <path pathLength={1} d="M6 8h20a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2z" />
+        <path pathLength={1} d="M8 12h4.5v3.5H8z" />
       </Splash>
       <canvas ref={canvas} aria-label="Rotating 3D payment card" className="fixed inset-0 size-full cursor-grab touch-none active:cursor-grabbing" style={{ background: o.bg }} />
       {failed && (
