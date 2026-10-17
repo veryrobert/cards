@@ -255,6 +255,9 @@ export default function App() {
                   <Field label="Layout">
                     <Segmented label="Layout" value={o.orient} onChange={v => set({ orient: v })} options={[{ value: 'v', label: 'Vertical' }, { value: 'h', label: 'Horizontal' }]} />
                   </Field>
+                  <Field label="Typeface">
+                    <Segmented label="Typeface" value={o.cardFont} onChange={v => set({ cardFont: v })} options={[{ value: 'helvetica', label: 'Helvetica' }, { value: 'geist', label: 'Geist' }]} />
+                  </Field>
                   <Field label="Name">
                     <Input value={o.nameText} maxLength={26} aria-label="Cardholder name" onChange={e => set({ nameText: e.target.value })} />
                   </Field>

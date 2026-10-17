@@ -185,8 +185,17 @@ export function createStudio(
     ctx.arcTo(x, y, x + w, y, r);
     ctx.closePath();
   }
-  const SANS = '"Helvetica Neue", Helvetica, Arial, sans-serif';
-  const MONO = '"SF Mono", Menlo, Consolas, "Liberation Mono", monospace';
+  // Typeface printed on the card. Numbers use it too, slightly tracked, as modern flat-printed cards do
+  const FONTS = {
+    helvetica: '"Helvetica Neue", Helvetica, Arial, sans-serif',
+    geist: '"Geist Variable", "Helvetica Neue", Helvetica, Arial, sans-serif',
+  };
+  const sans = () => FONTS[state.cardFont] || FONTS.helvetica;
+  const NUMBER = { tracking: 0.06 };
+  // Canvas won't load a web font on its own: fetch it first, then redraw
+  const fontReady = () => state.cardFont === 'geist'
+    ? Promise.all([document.fonts.load('400 40px "Geist Variable"'), document.fonts.load('500 40px "Geist Variable"')]).catch(() => {})
+    : Promise.resolve();
   function text(ctx, str, x, y, size, opts) {
     opts = opts || {};
     ctx.save();
@@ -196,7 +205,10 @@ export function createStudio(
     const room = align === 'left' ? W - M - x : align === 'right' ? x - M : 2 * Math.min(x - M, W - M - x);
     const maxW = Math.max(0.5, opts.maxW ? Math.min(opts.maxW, room) : room) * PX;
     let px = Math.round(size * PX);
-    const setFont = () => { ctx.font = `${opts.style || ''} ${opts.weight || 400} ${px}px ${opts.family || SANS}`; };
+    const setFont = () => {
+      ctx.font = `${opts.style || ''} ${opts.weight || 400} ${px}px ${opts.family || sans()}`;
+      ctx.letterSpacing = opts.tracking ? `${(px * opts.tracking).toFixed(1)}px` : '0px';
+    };
     setFont();
     while (px > 8 && ctx.measureText(str).width > maxW) { px -= 1; setFont(); }
     ctx.textAlign = align;
@@ -537,12 +549,12 @@ export function createStudio(
     if (!V && !markBottomLeft) y = H - 0.55;
     if (state.name !== 'back') { inkText(L, state.nameText, M, y, 0.3, { weight: 500 }, ink, inkRm); y -= 0.5; }
     if (state.fAccount === 'last4') {
-      inkText(L, '•••• 9010', M, y, 0.3, { family: MONO }, ink, inkRm);
+      inkText(L, '•••• 9010', M, y, 0.3, NUMBER, ink, inkRm);
     } else if (state.fAccount === 'full') {
       inkText(L, 'Good thru 12/29', M, y, 0.2, {}, ink, inkRm); y -= 0.42;
       // Keep the long number clear of a bottom-right mark
       if (state.markPos === 'br' && y > box.y - 0.1) y = box.y - 0.15;
-      inkText(L, '4000 1234 5678 9010', M, y, V ? 0.33 : 0.42, { family: MONO, weight: 500 }, ink, inkRm);
+      inkText(L, '4000 1234 5678 9010', M, y, V ? 0.33 : 0.42, { ...NUMBER, weight: 500 }, ink, inkRm);
     }
     return L;
   }
@@ -597,7 +609,7 @@ export function createStudio(
 
     // Account details and name
     if (state.bAccount === 'full') {
-      inkText(L, '4000 1234 5678 9010', cx, y, V ? 0.3 : 0.38, { family: MONO, weight: 500 }, ink, inkRm); y += 0.42;
+      inkText(L, '4000 1234 5678 9010', cx, y, V ? 0.3 : 0.38, { ...NUMBER, weight: 500 }, ink, inkRm); y += 0.42;
       inkText(L, 'Good thru 12/29', cx, y, 0.2, {}, ink, inkRm); y += 0.5;
     }
     if (state.name !== 'front') { inkText(L, state.nameText, cx, y, 0.28, { weight: 500 }, ink, inkRm); y += 0.5; }
@@ -915,6 +927,7 @@ export function createStudio(
   resize();
   apply();
   applyShadow();
+  fontReady().then(schedule);
 
   // ---------- Loop ----------
   const clock = new THREE.Clock();
@@ -1034,6 +1047,7 @@ export function createStudio(
       if (keys.some(k => LIGHT_KEYS.has(k))) applyLight();
       if (keys.some(k => SHADOW_KEYS.has(k))) applyShadow();
       if (keys.some(k => !LIGHT_KEYS.has(k) && !SHADOW_KEYS.has(k) && !LIVE_KEYS.has(k))) schedule();
+      if ('cardFont' in patch) fontReady().then(schedule);
     },
     setImage(slot, img) {
       if (slot === 'mark') markImg = img; else issuerImg = img;
