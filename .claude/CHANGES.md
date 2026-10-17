@@ -1,7 +1,8 @@
 # Change Log
 
-## 2026-10-17 — README screenshot
+## 2026-10-17 — README screenshot and phone layout
 - 16:9 screenshot of two metal cards in the README
+- Phone layout: panel bar and actions at the bottom, panels slide up from the bottom half, content stays visible above
 
 ## 2026-10-17 — First push: cards, from the Card studio artifact
 - Payment card mockups rendered in 3D with three.js; the original renderer kept intact behind a small API
