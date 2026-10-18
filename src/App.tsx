@@ -112,7 +112,7 @@ export default function App() {
 
   // Frame the card in the space the open panel leaves: beside it on desktop, above it on phones
   useEffect(() => {
-    studio.current?.setViewInset(!panel ? (phone ? { right: 60 } : {}) : phone ? { bottom: window.innerHeight * PHONE_SHEET } : { right: PANEL_W })
+    studio.current?.setViewInset(!panel ? {} : phone ? { bottom: window.innerHeight * PHONE_SHEET } : { right: PANEL_W })
   }, [panel, phone])
 
   const chooseMark = async () => {
