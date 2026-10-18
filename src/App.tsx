@@ -26,6 +26,7 @@ import { PanelRail } from '@/components/shell/PanelRail'
 import { PanelSheet } from '@/components/shell/PanelSheet'
 import { ActionDock } from '@/components/shell/ActionDock'
 import { PANEL_W, PHONE_SHEET, usePhone } from '@/components/shell/layout'
+import { thumbnail } from '@/components/shell/thumbnail'
 
 const panels = [
   { id: 'design', label: 'Design', icon: CreditCard },
@@ -207,6 +208,15 @@ export default function App() {
     const blob: Blob | null = await studio.current.exportImage(fmt, o.exportSize, o.exportBg)
     if (!blob) return setNote('Couldn’t render the image')
     save(blob, `card-${o.layout}-${o.exportSize}.${fmt}`)
+  }
+
+  // The index thumbnail: 16:10, the card's scene with its own background around it (shell/thumbnail.ts)
+  const exportThumb = async () => {
+    if (!studio.current) return
+    setNote('Rendering')
+    const blob: Blob | null = await studio.current.exportImage('png', 'hd', 'include')
+    if (!blob) return setNote('Couldn’t render the image')
+    save(await thumbnail(blob, o.bg, 0), 'card-thumbnail.png')
   }
 
   const recordVideo = async () => {
@@ -451,6 +461,7 @@ export default function App() {
                       <Button variant="secondary" onClick={() => exportAs('png')}>Save PNG</Button>
                       <Button variant="secondary" onClick={() => exportAs('jpg')}>Save JPG</Button>
                     </div>
+                    <Button variant="secondary" onClick={exportThumb}>Save thumbnail</Button>
                   </>
                 ) : (
                   <>
