@@ -30,9 +30,9 @@ import { PANEL_W, PHONE_SHEET, usePhone } from '@/components/shell/layout'
 const panels = [
   { id: 'design', label: 'Design', icon: CreditCard },
   { id: 'finish', label: 'Colour and finish', icon: Palette },
+  { id: 'bg', label: 'Background', icon: Image },
   { id: 'light', label: 'Lighting', icon: Sun },
   { id: 'motion', label: 'Rotation', icon: Rotate3d },
-  { id: 'bg', label: 'Background', icon: Image },
   { id: 'export', label: 'Export', icon: Download },
 ] as const
 type PanelId = (typeof panels)[number]['id']
